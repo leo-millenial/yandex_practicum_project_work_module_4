@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "common",
+    "image_processor",
+    "mirror_plugin",
+    "blur_plugin",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Leonid Konchulizov"]
+license = "MIT"
+
+[workspace.dependencies]
+common = { path = "common" }
+png = "0.17"
+libloading = "0.8"
+thiserror = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
