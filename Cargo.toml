@@ -16,6 +16,7 @@ license = "MIT"
 [workspace.dependencies]
 common = { path = "common" }
 png = "0.17"
+image = "0.25"
 libloading = "0.8"
 thiserror = "1.0"
 clap = { version = "4.4", features = ["derive"] }

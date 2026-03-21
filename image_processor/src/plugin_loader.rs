@@ -1,11 +1,28 @@
 use libloading::{Library, Symbol};
+use std::ffi::CString;
 use std::path::Path;
 
 use crate::error::PluginError;
 use common::BYTES_PER_PIXEL;
 
-pub type ProcessImageFn =
-    unsafe extern "C" fn(width: u32, height: u32, rgba_data: *mut u8, params: *const u8);
+/// Plugin function type: returns 0 on success, non-zero on error.
+///
+/// # Safety
+///
+/// The function pointer must point to a valid C ABI function with the signature:
+/// `unsafe extern "C" fn(u32, u32, *mut u8, *const c_char) -> c_int`
+pub type ProcessImageFn = unsafe extern "C" fn(
+    width: u32,
+    height: u32,
+    rgba_data: *mut u8,
+    params: *const std::ffi::c_char,
+) -> std::ffi::c_int;
+
+/// Error codes returned by plugin functions
+pub const PLUGIN_SUCCESS: std::ffi::c_int = 0;
+pub const PLUGIN_ERROR_NULL_POINTER: std::ffi::c_int = 1;
+pub const PLUGIN_ERROR_INVALID_DIMENSIONS: std::ffi::c_int = 2;
+pub const PLUGIN_ERROR_PROCESSING: std::ffi::c_int = 3;
 
 pub struct PluginLoader {
     lib: Library,
@@ -80,12 +97,22 @@ pub fn call_plugin_process(
         )));
     }
 
-    let params_bytes = params.as_bytes();
-    let params_ptr = if params_bytes.is_empty() {
-        std::ptr::null()
+    // SAFETY: CString properly creates a null-terminated string required by C plugins.
+    // The CString must outlive the pointer used in the FFI call, which is guaranteed
+    // since we hold it in this scope and the FFI call completes before CString is dropped.
+    let params_cstring = if params.is_empty() {
+        None
     } else {
-        params_bytes.as_ptr()
+        Some(CString::new(params).map_err(|_| {
+            PluginError::ProcessingFailed("Params contain embedded null byte".into())
+        })?)
     };
+
+    // Get pointer to the CString's internal buffer, or null if no params
+    let params_ptr = params_cstring
+        .as_ref()
+        .map(|cs| cs.as_ptr())
+        .unwrap_or(std::ptr::null());
 
     tracing::debug!(
         "Calling plugin process_image: {}x{}, params: {:?}",
@@ -94,8 +121,23 @@ pub fn call_plugin_process(
         params
     );
 
-    unsafe {
-        process_fn(width, height, rgba_data.as_mut_ptr(), params_ptr);
+    // SAFETY:
+    // - rgba_data.as_mut_ptr() is valid for width*height*4 bytes (validated above)
+    // - params_ptr is either null or a valid CString pointer (validated by CString::new)
+    // - The plugin function signature matches ProcessImageFn type
+    let result = unsafe { process_fn(width, height, rgba_data.as_mut_ptr(), params_ptr) };
+
+    if result != PLUGIN_SUCCESS {
+        let error_msg = match result {
+            PLUGIN_ERROR_NULL_POINTER => "Plugin received null pointer",
+            PLUGIN_ERROR_INVALID_DIMENSIONS => "Plugin reported invalid dimensions",
+            PLUGIN_ERROR_PROCESSING => "Plugin processing error",
+            _ => "Unknown plugin error",
+        };
+        return Err(PluginError::ProcessingFailed(format!(
+            "{} (error code: {})",
+            error_msg, result
+        )));
     }
 
     Ok(())

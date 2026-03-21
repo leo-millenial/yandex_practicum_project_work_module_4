@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -12,17 +14,17 @@ use image_processor::Image;
     long_about = None
 )]
 struct Args {
-    #[arg(help = "Path to input PNG image")]
+    #[arg(help = "Path to input image file")]
     input: String,
 
-    #[arg(help = "Path to output PNG image")]
+    #[arg(help = "Path to output image file")]
     output: String,
 
     #[arg(help = "Path to plugin .so file")]
     plugin: String,
 
-    #[arg(help = "Parameters string to pass to plugin", default_value = "")]
-    params: String,
+    #[arg(help = "Path to file containing parameters for the plugin")]
+    params_file: PathBuf,
 }
 
 fn main() -> Result<(), AppError> {
@@ -42,7 +44,19 @@ fn main() -> Result<(), AppError> {
     tracing::info!("Input: {}", args.input);
     tracing::info!("Output: {}", args.output);
     tracing::info!("Plugin: {}", args.plugin);
-    tracing::info!("Params: {:?}", args.params);
+    tracing::info!("Params file: {:?}", args.params_file);
+
+    tracing::info!("Reading parameters from: {:?}", args.params_file);
+    let params = std::fs::read_to_string(&args.params_file).map_err(|e| {
+        AppError::InvalidArgs(format!(
+            "Failed to read params file '{}': {}",
+            args.params_file.display(),
+            e
+        ))
+    })?;
+
+    let params = params.trim().to_string();
+    tracing::info!("Params read: {:?}", params);
 
     tracing::info!("Loading image from: {}", args.input);
     let mut image = Image::from_file(&args.input).map_err(AppError::Image)?;
@@ -59,7 +73,7 @@ fn main() -> Result<(), AppError> {
         image.width,
         image.height,
         image.rgba_slice_mut(),
-        &args.params,
+        &params,
     )
     .map_err(AppError::Plugin)?;
     tracing::info!("Plugin processing complete");

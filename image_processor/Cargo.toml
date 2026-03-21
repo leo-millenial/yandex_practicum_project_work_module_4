@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 common = { workspace = true }
-png = { workspace = true }
+image = { workspace = true }
 libloading = { workspace = true }
 thiserror = { workspace = true }
 clap = { workspace = true }

@@ -1,13 +1,11 @@
 pub mod error;
 pub mod plugin_loader;
 
-use std::fs::File;
-use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
-use common::{ALPHA_OPAQUE, BYTES_PER_PIXEL, RGB_CHUNK_SIZE};
+use common::BYTES_PER_PIXEL;
 use error::ImageError;
-use png::{ColorType, Decoder, Encoder};
+use image::{DynamicImage, ImageBuffer, Rgba};
 
 #[derive(Debug, Clone)]
 pub struct Image {
@@ -42,75 +40,42 @@ impl Image {
             )));
         }
 
-        let file = File::open(path).map_err(|e| {
-            ImageError::LoadError(format!("Failed to open file '{}': {}", path.display(), e))
+        let img: DynamicImage = image::open(path).map_err(|e| {
+            ImageError::LoadError(format!(
+                "Failed to open image '{}': {}. Supported formats: PNG, JPEG, GIF, BMP, TIFF, WebP",
+                path.display(),
+                e
+            ))
         })?;
 
-        let decoder = Decoder::new(BufReader::new(file));
-        let mut reader = decoder
-            .read_info()
-            .map_err(|e| ImageError::LoadError(format!("Failed to read PNG info: {}", e)))?;
+        // Convert to RGBA8
+        let rgba_img = img.into_rgba8();
+        let (width, height) = rgba_img.dimensions();
+        let rgba_data = rgba_img.into_raw();
 
-        let mut buf = vec![0; reader.output_buffer_size()];
-        let info = reader
-            .next_frame(&mut buf)
-            .map_err(|e| ImageError::LoadError(format!("Failed to decode PNG: {}", e)))?;
-
-        let bytes = &buf[..info.buffer_size()];
-
-        match info.color_type {
-            ColorType::Rgba => {
-                let rgba_data = bytes.to_vec();
-                Ok(Self {
-                    width: info.width,
-                    height: info.height,
-                    rgba_data,
-                })
-            }
-            ColorType::Rgb => {
-                let rgb_data = bytes.to_vec();
-                let mut rgba_data = Vec::with_capacity(
-                    (info.width * info.height * BYTES_PER_PIXEL as u32) as usize,
-                );
-
-                for chunk in rgb_data.chunks(RGB_CHUNK_SIZE) {
-                    let [r, g, b] = [chunk[0], chunk[1], chunk[2]];
-                    rgba_data.extend_from_slice(&[r, g, b, ALPHA_OPAQUE]);
-                }
-
-                Ok(Self {
-                    width: info.width,
-                    height: info.height,
-                    rgba_data,
-                })
-            }
-            _ => Err(ImageError::InvalidFormat(format!(
-                "Unsupported color type: {:?}. Only RGB and RGBA are supported.",
-                info.color_type
-            ))),
-        }
+        Ok(Self {
+            width,
+            height,
+            rgba_data,
+        })
     }
 
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), ImageError> {
         let path = path.as_ref();
 
-        let file = File::create(path).map_err(|e| {
-            ImageError::SaveError(format!("Failed to create file '{}': {}", path.display(), e))
-        })?;
+        let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
+            ImageBuffer::from_raw(self.width, self.height, self.rgba_data.clone()).ok_or_else(
+                || {
+                    ImageError::SaveError(format!(
+                        "Failed to create image buffer for {}x{} image",
+                        self.width, self.height
+                    ))
+                },
+            )?;
 
-        let mut encoder = Encoder::new(BufWriter::new(file), self.width, self.height);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-
-        let mut writer = encoder
-            .write_header()
-            .map_err(|e| ImageError::SaveError(format!("Failed to write PNG header: {}", e)))?;
-
-        writer
-            .write_image_data(&self.rgba_data)
-            .map_err(|e| ImageError::SaveError(format!("Failed to write PNG data: {}", e)))?;
-
-        Ok(())
+        img.save(path).map_err(|e| {
+            ImageError::SaveError(format!("Failed to save image '{}': {}", path.display(), e))
+        })
     }
 
     pub fn rgba_slice(&self) -> &[u8] {
