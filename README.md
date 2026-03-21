@@ -4,15 +4,11 @@
 
 ## Примеры
 
-### Исходное изображение
-
-![Original](logo.png)
-
 ### Mirror — отражение по горизонтали
 
 ```bash
 cargo run --package image_processor -- \
-    logo.png logo_mirror.png target/debug/libmirror_plugin.dylib
+    logo.png logo_mirror.png target/debug/libmirror_plugin.dylib /dev/null
 ```
 
 ![Mirror](logo_mirror.png)
@@ -20,8 +16,9 @@ cargo run --package image_processor -- \
 ### Blur — размытие (радиус 3)
 
 ```bash
+echo '3' > params.txt
 cargo run --package image_processor -- \
-    logo.png logo_blur.png target/debug/libblur_plugin.dylib "3"
+    logo.png logo_blur.png target/debug/libblur_plugin.dylib params.txt
 ```
 
 ![Blur](logo_blur.png)
@@ -38,8 +35,14 @@ cargo build -p blur_plugin
 
 ```bash
 cargo run --package image_processor -- \
-    <input.png> <output.png> <plugin.dylib> [params]
+    <INPUT> <OUTPUT> <PLUGIN> <PARAMS_FILE>
 ```
+
+Где:
+- `<INPUT>` — путь к входному изображению
+- `<OUTPUT>` — путь для сохранения результата
+- `<PLUGIN>` — путь к файлу плагина (.so/.dylib)
+- `<PARAMS_FILE>` — путь к файлу с параметрами для плагина
 
 ## Структура проекта
 
@@ -62,4 +65,5 @@ image_ffi_project/
 void process_image(uint32_t width, uint32_t height, uint8_t* rgba_data, const char* params);
 ```
 
+Приложение читает содержимое файла `PARAMS_FILE` и передаёт его как строку в `params`.
 Пример в `mirror_plugin/src/lib.rs` и `blur_plugin/src/lib.rs`.
